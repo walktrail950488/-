@@ -315,7 +315,6 @@
             updateProfileStats();
         }
 
-        /* 直接切り替え関数（ガード回避用） */
         function forceSwitchToMapTab() {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
@@ -324,7 +323,6 @@
             setTimeout(() => { map.invalidateSize(); }, 150);
         }
 
-        /* タブ切り替え（手動タップ時） */
         function switchTab(tabName, element) {
             if (activeActionMode !== 'none') {
                 alert('作業中です。「完了」または「中断」を押してから切り替えてください。');
@@ -435,8 +433,8 @@
             updateProfileStats();
         }
 
-        /* 写真機能 */
         function triggerPhotoAdd() {
+            targetHistoryId = null; // 通常撮影
             document.getElementById('hidden-photo-input').click();
         }
 
@@ -462,7 +460,6 @@
             tempPhotoComment = document.getElementById('photo-comment-input').value;
             closePhotoModal();
 
-            // 自動的にマップ画面に切り替え
             forceSwitchToMapTab();
             startSelectPhotoLocation();
         }
@@ -486,14 +483,12 @@
               .bindPopup(`<b>${item.date}</b><br><img src="${item.url}" style="width:120px;border-radius:6px;margin-top:4px;"><br><p style="margin:4px 0 0 0;font-size:12px;">${item.comment}</p>`);
         }
 
-        /* 過去の履歴への写真追加 */
         function triggerAddPhotoToHistory() {
             closeDetailModal();
             targetHistoryId = viewingHistoryId;
             document.getElementById('hidden-photo-input').click();
         }
 
-        /* カレンダー・履歴 */
         function changeMonth(delta) {
             currentDate.setMonth(currentDate.getMonth() + delta);
             renderCalendar();
@@ -666,7 +661,6 @@
             }
         }
 
-        /* アクションバーの「完了」「中断」 */
         function finishTopAction() {
             if (activeActionMode === 'edit_route') {
                 if (editedCoords.length < 2) {
@@ -705,7 +699,6 @@
                 };
 
                 if (targetHistoryId) {
-                    // 過去履歴へ保存
                     const history = walkHistories.find(h => h.id === targetHistoryId);
                     if (history) {
                         if (!history.photos) history.photos = [];
@@ -714,7 +707,6 @@
                         alert('過去のお散歩に写真を追加しました！');
                     }
                 } else {
-                    // 現在のお散歩（リアルタイム）へ保存
                     photosData.push(photoItem);
                     addPhotoMarkerToMap(photoItem);
                     alert('写真をピン留めしました！');
