@@ -112,7 +112,6 @@
             justify-content: space-between; align-items: center; font-size: 13px;
         }
 
-        /* 編集・ピン選択用上部バー */
         #top-action-bar {
             position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 100;
             background: rgba(255,71,87,0.95); padding: 8px 16px; border-radius: 20px; display: none;
@@ -197,7 +196,7 @@
     </div>
 
     <nav class="bottom-nav">
-        <button class="nav-item active" onclick="switchTab('map', this)">
+        <button class="nav-item active" onclick="switchTab('map', this)" id="nav-map-btn">
             <span>🗺️</span>
             <span>マップ</span>
         </button>
@@ -258,7 +257,6 @@
         let currentDate = new Date();
         let selectedDateStr = null;
         
-        // 状態管理（'none', 'edit_route', 'add_photo_pin'）
         let activeActionMode = 'none'; 
         let targetHistoryId = null;
         let editedCoords = [];
@@ -282,9 +280,7 @@
                 } else if (activeActionMode === 'add_photo_pin') {
                     const latlng = [e.latlng.lat, e.latlng.lng];
                     if (tempPinMarker) map.removeLayer(tempPinMarker);
-                    tempPinMarker = L.marker(latlng).addTo(map).bindPopup('ここに写真を配置します').openPopup();
-                    
-                    // タップした場所を一時保存
+                    tempPinMarker = L.marker(latlng).addTo(map).bindPopup('ここに配置').openPopup();
                     window.selectedPhotoLatLng = latlng;
                 }
             });
@@ -319,10 +315,19 @@
             updateProfileStats();
         }
 
-        /* タブ切り替え（ロック中ガード付き） */
+        /* 直接切り替え関数（ガード回避用） */
+        function forceSwitchToMapTab() {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            document.getElementById('tab-map').classList.add('active');
+            document.getElementById('nav-map-btn').classList.add('active');
+            setTimeout(() => { map.invalidateSize(); }, 150);
+        }
+
+        /* タブ切り替え（手動タップ時） */
         function switchTab(tabName, element) {
             if (activeActionMode !== 'none') {
-                alert('ルート補正または写真ピン指定の作業中です。「完了」または「中断」を押してください。');
+                alert('作業中です。「完了」または「中断」を押してから切り替えてください。');
                 return;
             }
 
@@ -430,7 +435,7 @@
             updateProfileStats();
         }
 
-        /* 写真関連（新規お散歩中） */
+        /* 写真機能 */
         function triggerPhotoAdd() {
             document.getElementById('hidden-photo-input').click();
         }
@@ -457,30 +462,16 @@
             tempPhotoComment = document.getElementById('photo-comment-input').value;
             closePhotoModal();
 
-            if (activeActionMode === 'add_photo_pin_history') {
-                // 過去履歴への写真追加の場合、マップ上で位置選択モードへ
-                switchTab('map', document.querySelector('.nav-item'));
-                startSelectPhotoLocation();
-            } else {
-                // 通常のお散歩中
-                const pos = currentPosition || map.getCenter();
-                addPhotoItemDirect(pos[0], pos[1]);
-            }
+            // 自動的にマップ画面に切り替え
+            forceSwitchToMapTab();
+            startSelectPhotoLocation();
         }
 
-        function addPhotoItemDirect(lat, lng) {
-            const now = new Date();
-            const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-            const photoItem = {
-                lat: lat,
-                lng: lng,
-                url: tempPhotoUrl,
-                comment: tempPhotoComment || '',
-                date: timeStr
-            };
-            photosData.push(photoItem);
-            addPhotoMarkerToMap(photoItem);
-            alert('写真をピン留めしました！');
+        function startSelectPhotoLocation() {
+            activeActionMode = 'add_photo_pin';
+            window.selectedPhotoLatLng = null;
+            document.getElementById('top-action-text').innerText = 'マップ上の撮影場所をタップして指定';
+            document.getElementById('top-action-bar').style.display = 'flex';
         }
 
         function addPhotoMarkerToMap(item) {
@@ -495,18 +486,11 @@
               .bindPopup(`<b>${item.date}</b><br><img src="${item.url}" style="width:120px;border-radius:6px;margin-top:4px;"><br><p style="margin:4px 0 0 0;font-size:12px;">${item.comment}</p>`);
         }
 
-        /* 過去の履歴への写真追加フロー */
+        /* 過去の履歴への写真追加 */
         function triggerAddPhotoToHistory() {
             closeDetailModal();
-            activeActionMode = 'add_photo_pin_history';
+            targetHistoryId = viewingHistoryId;
             document.getElementById('hidden-photo-input').click();
-        }
-
-        function startSelectPhotoLocation() {
-            activeActionMode = 'add_photo_pin';
-            window.selectedPhotoLatLng = null;
-            document.getElementById('top-action-text').innerText = 'マップ上の撮影場所をタップして指定';
-            document.getElementById('top-action-bar').style.display = 'flex';
         }
 
         /* カレンダー・履歴 */
@@ -682,7 +666,7 @@
             }
         }
 
-        /* 上部アクションバーの制御（完了・中断） */
+        /* アクションバーの「完了」「中断」 */
         function finishTopAction() {
             if (activeActionMode === 'edit_route') {
                 if (editedCoords.length < 2) {
@@ -709,20 +693,31 @@
                     alert('マップ上のどこかをタップしてピン位置を指定してください。');
                     return;
                 }
-                const history = walkHistories.find(h => h.id === viewingHistoryId);
-                if (history) {
-                    if (!history.photos) history.photos = [];
-                    const now = new Date();
-                    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-                    history.photos.push({
-                        lat: window.selectedPhotoLatLng[0],
-                        lng: window.selectedPhotoLatLng[1],
-                        url: tempPhotoUrl,
-                        comment: tempPhotoComment || '写真メモ',
-                        date: timeStr
-                    });
-                    localStorage.setItem('walk_histories', JSON.stringify(walkHistories));
-                    alert('過去の履歴に写真を追加しました！');
+                
+                const now = new Date();
+                const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+                const photoItem = {
+                    lat: window.selectedPhotoLatLng[0],
+                    lng: window.selectedPhotoLatLng[1],
+                    url: tempPhotoUrl,
+                    comment: tempPhotoComment || '',
+                    date: timeStr
+                };
+
+                if (targetHistoryId) {
+                    // 過去履歴へ保存
+                    const history = walkHistories.find(h => h.id === targetHistoryId);
+                    if (history) {
+                        if (!history.photos) history.photos = [];
+                        history.photos.push(photoItem);
+                        localStorage.setItem('walk_histories', JSON.stringify(walkHistories));
+                        alert('過去のお散歩に写真を追加しました！');
+                    }
+                } else {
+                    // 現在のお散歩（リアルタイム）へ保存
+                    photosData.push(photoItem);
+                    addPhotoMarkerToMap(photoItem);
+                    alert('写真をピン留めしました！');
                 }
             }
             cancelTopAction();
@@ -731,6 +726,7 @@
         function cancelTopAction() {
             activeActionMode = 'none';
             editingHistoryId = null;
+            targetHistoryId = null;
             editedCoords = [];
             editLine.setLatLngs([]);
             if (tempPinMarker) {
@@ -745,7 +741,7 @@
             activeActionMode = 'edit_route';
             editedCoords = [];
             editLine.setLatLngs([]);
-            switchTab('map', document.querySelector('.nav-item'));
+            forceSwitchToMapTab();
             document.getElementById('top-action-text').innerText = 'マップをタップしてルートを描き直し';
             document.getElementById('top-action-bar').style.display = 'flex';
         }
