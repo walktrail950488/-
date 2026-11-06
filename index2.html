@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>お散歩トラッカー</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden; background: #121212; color: #fff;
+        }
+        #map { width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 1; }
+       
+        /* カラーパレット */
+        .color-palette {
+            position: absolute; top: 15px; left: 15px; z-index: 10;
+            display: flex; gap: 8px; background: rgba(0,0,0,0.6); padding: 8px 12px;
+            border-radius: 20px; backdrop-filter: blur(5px);
+        }
+        .color-dot {
+            width: 24px; height: 24px; border-radius: 50%; cursor: pointer; border: 2px solid #fff;
+        }
+        .color-dot.active { transform: scale(1.2); box-shadow: 0 0 8px #fff; }
+
+        /* 右上のコントロールボタン群 */
+        .top-controls {
+            position: absolute; top: 15px; right: 15px; z-index: 10;
+            display: flex; flex-direction: column; gap: 10px;
+        }
+        .icon-btn {
+            width: 44px; height: 44px; border-radius: 50%; background: rgba(30,30,30,0.8);
+            border: none; color: #fff; font-size: 20px; display: flex; align-items: center;
+            justify-content: center; cursor: pointer; backdrop-filter: blur(5px);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        /* 下部コントロールパネル */
+        .bottom-panel {
+            position: absolute; bottom: 25px; left: 50%; transform: translateX(-50%);
+            z-index: 10; width: 90%; max-width: 400px; background: rgba(20,20,20,0.85);
+            padding: 15px 20px; border-radius: 24px; backdrop-filter: blur(10px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 12px;
+        }
+        .stats-row { display: flex; justify-content: space-around; text-align: center; }
+        .stat-box { display: flex; flex-direction: column; }
+        .stat-label { font-size: 10px; color: #aaa; letter-spacing: 1px; }
+        .stat-value { font-size: 20px; font-weight: bold; }
+       
+        .action-row { display: flex; gap: 10px; }
+        .main-btn {
+            flex: 1; padding: 14px; border-radius: 16px; border: none; font-weight: bold;
+            font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        #start-btn { background: #fff; color: #000; }
+        #start-btn.recording { background: #ff4757; color: #fff; }
+        #photo-btn { background: rgba(255,255,255,0.15); color: #fff; }
+
+        /* モーダル共通 */
+        .modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7);
+            z-index: 1000; display: none; align-items: center; justify-content: center; backdrop-filter: blur(5px);
+        }
+        .modal-content {
+            background: #222; width: 85%; max-width: 350px; padding: 20px; border-radius: 20px;
+            display: flex; flex-direction: column; gap: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+        .modal-content h3 { margin: 0; font-size: 18px; }
+        .modal-content textarea, .modal-content select {
+            width: 100%; background: #333; border: 1px solid #444; color: #fff; padding: 10px;
+            border-radius: 8px; font-size: 14px; box-sizing: border-box; resize: none;
+        }
+        .modal-buttons { display: flex; gap: 10px; justify-content: flex-end; }
+        .modal-btn { padding: 8px 16px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; }
+        .modal-btn.cancel { background: #444; color: #fff; }
+        .modal-btn.submit { background: #2ed573; color: #fff; }
+        .modal-btn.danger { background: #ff4757; color: #fff; }
+
+        /* リスト表示用 */
+        .history-list { max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+        .history-item {
+            background: #333; padding: 10px; border-radius: 10px; display: flex;
+            justify-content: space-between; align-items: center; font-size: 14px;
+        }
+        .history-info { display: flex; flex-direction: column; gap: 2px; }
+        .history-date { font-size: 11px; color: #aaa; }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <!-- パスカラー選択 -->
+    <div class="color-palette">
+        <div class="color-dot active" style="background: #3388ff;" onclick="changeColor('#3388ff', this)"></div>
+        <div class="color-dot" style="background: #2ed573;" onclick="changeColor('#2ed573', this)"></div>
+        <div class="color-dot" style="background: #ffa502;" onclick="changeColor('#ffa502', this)"></div>
+        <div class="color-dot" style="background: #ff4757;" onclick="changeColor('#ff4757', this)"></div>
+    </div>
+
+    <!-- 右上コントロール -->
+    <div class="top-controls">
+        <button class="icon-btn" onclick="centerToCurrentLocation()" title="現在地へ移動">📍</button>
+        <button class="icon-btn" onclick="openHistoryModal()" title="履歴一覧">📅</button>
+        <button class="icon-btn" onclick="openAccountModal()" title="アカウント">👤</button>
+    </div>
+
+    <!-- 下部パネル -->
+    <div class="bottom-panel">
+        <div class="stats-row">
+            <div class="stat-box">
+                <span class="stat-label">TIME</span>
+                <span class="stat-value" id="time-display">00:00</span>
+            </div>
+            <div class="stat-box">
+                <span class="stat-label">DISTANCE</span>
+                <span class="stat-value" id="dist-display">0.00 km</span>
+            </div>
+        </div>
+        <div class="action-row">
+            <button class="main-btn" id="start-btn" onclick="toggleTracking()">▶ スタート</button>
+            <button class="main-btn" id="photo-btn" onclick="triggerPhotoAdd()">📷 写真ピン</button>
+        </div>
+    </div>
+
+    <!-- 隠しファイル選択（あとからの写真追加用） -->
+    <input type="file" id="hidden-photo-input" accept="image/*" style="display:none;" onchange="handlePhotoSelected(event)">
+
+    <!-- 写真コメント入力モーダル -->
+    <div id="photo-modal" class="modal">
+        <div class="modal-content">
+            <h3>写真にコメントを添える</h3>
+            <div id="photo-preview-container" style="text-align: center;">
+                <img id="photo-preview-img" src="" style="max-width: 100%; max-height: 120px; border-radius: 8px; object-fit: cover;">
+            </div>
+            <textarea id="photo-comment-input" rows="3" placeholder="ここでの思い出やメモを入力..."></textarea>
+            <div class="modal-buttons">
+                <button class="modal-btn cancel" onclick="closePhotoModal()">キャンセル</button>
+                <button class="modal-btn submit" onclick="savePhotoPin()">ピン留めする</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 履歴・削除管理モーダル -->
+    <div id="history-modal" class="modal">
+        <div class="modal-content">
+            <h3>お散歩履歴（削除・あとから写真追加）</h3>
+            <div class="history-list" id="history-list-container">
+                <!-- 動的にJavaScriptで生成 -->
+            </div>
+            <div class="modal-buttons">
+                <button class="modal-btn cancel" onclick="closeHistoryModal()">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- アカウントモーダル（ゲスト用） -->
+    <div id="account-modal" class="modal">
+        <div class="modal-content">
+            <h3>アカウント & 同期</h3>
+            <p style="font-size: 13px; color: #bbb; margin:0;">現在はゲストモード（端末内保存）で動作しています。</p>
+            <div class="modal-buttons">
+                <button class="modal-btn cancel" onclick="closeAccountModal()">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        let map, currentMarker, routeLine;
+        let isTracking = false;
+        let routeCoordinates = [];
+        let photosData = []; // {lat, lng, url, comment, date}
+        let walkHistories = JSON.parse(localStorage.getItem('walk_histories') || '[]');
+        let pathColor = '#3388ff';
+        let timerInterval, seconds = 0, totalDist = 0;
+        let currentPosition = null;
+        let tempPhotoUrl = null; // 一時保存用
+
+        // 初期化
+        function initMap() {
+            map = L.map('map', { zoomControl: false }).setView([35.6812, 139.7671], 16);
+            L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
+                maxZoom: 20,
+                subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+            }).addTo(map);
+
+            routeLine = L.polyline([], { color: pathColor, weight: 5, opacity: 0.8 }).addTo(map);
+
+            if (navigator.geolocation) {
+                navigator.geolocation.watchPosition(pos => {
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    currentPosition = [lat, lng];
+                   
+                    if (!currentMarker) {
+                        currentMarker = L.circleMarker(currentPosition, {
+                            radius: 8, color: '#fff', fillColor: '#3388ff', fillOpacity: 1, weight: 2
+                        }).addTo(map);
+                        map.setView(currentPosition, 16);
+                    } else {
+                        currentMarker.setLatLng(currentPosition);
+                    }
+
+                    if (isTracking) {
+                        routeCoordinates.push(currentPosition);
+                        routeLine.setLatLngs(routeCoordinates);
+                        if (routeCoordinates.length > 1) {
+                            let prev = routeCoordinates[routeCoordinates.length - 2];
+                            totalDist += map.distance(prev, currentPosition);
+                            document.getElementById('dist-display').innerText = (totalDist / 1000).toFixed(2) + ' km';
+                        }
+                    }
+                }, err => console.error(err), { enableHighAccuracy: true });
+            }
+        }
+
+        function centerToCurrentLocation() {
+            if (currentPosition) map.setView(currentPosition, 17);
+        }
+
+        function changeColor(color, element) {
+            pathColor = color;
+            routeLine.setStyle({ color: color });
+            document.querySelectorAll('.color-dot').forEach(el => el.classList.remove('active'));
+            element.classList.add('active');
+        }
+
+        function toggleTracking() {
+            isTracking = !isTracking;
+            const btn = document.getElementById('start-btn');
+            if (isTracking) {
+                btn.classList.add('recording');
+                btn.innerHTML = '⏹ 終了して保存';
+                routeCoordinates = [];
+                totalDist = 0;
+                seconds = 0;
+                photosData = [];
+                routeLine.setLatLngs([]);
+                timerInterval = setInterval(() => {
+                    seconds++;
+                    let m = String(Math.floor(seconds / 60)).padStart(2, '0');
+                    let s = String(seconds % 60).padStart(2, '0');
+                    document.getElementById('time-display').innerText = `${m}:${s}`;
+                }, 1000);
+            } else {
+                btn.classList.remove('recording');
+                btn.innerHTML = '▶ スタート';
+                clearInterval(timerInterval);
+                if (routeCoordinates.length > 0) {
+                    saveWalkHistory();
+                }
+            }
+        }
+
+        function saveWalkHistory() {
+            const newHistory = {
+                id: Date.now(),
+                date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+                distance: (totalDist / 1000).toFixed(2) + ' km',
+                time: document.getElementById('time-display').innerText,
+                coordinates: routeCoordinates,
+                photos: [...photosData]
+            };
+            walkHistories.unshift(newHistory);
+            localStorage.setItem('walk_histories', JSON.stringify(walkHistories));
+            alert('お散歩の記録を保存しました！');
+        }
+
+        // 写真追加・コメント機能
+        function triggerPhotoAdd() {
+            document.getElementById('hidden-photo-input').click();
+        }
+
+        function handlePhotoSelected(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                tempPhotoUrl = e.target.result;
+                document.getElementById('photo-preview-img').src = tempPhotoUrl;
+                document.getElementById('photo-comment-input').value = '';
+                document.getElementById('photo-modal').style.display = 'flex';
+            };
+            reader.readAsDataURL(file);
+            event.target.value = ''; // リセット
+        }
+
+        function closePhotoModal() {
+            document.getElementById('photo-modal').style.display = 'none';
+        }
+
+        function savePhotoPin() {
+            const comment = document.getElementById('photo-comment-input').value;
+            const pos = currentPosition || map.getCenter();
+           
+            const photoItem = {
+                lat: pos[0],
+                lng: pos[1],
+                url: tempPhotoUrl,
+                comment: comment || 'コメントなし',
+                date: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+            };
+
+            photosData.push(photoItem);
+            addPhotoMarkerToMap(photoItem);
+            closePhotoModal();
+        }
+
+        function addPhotoMarkerToMap(item) {
+            const customIcon = L.divIcon({
+                className: 'custom-photo-pin',
+                html: `<div style="width:36px;height:36px;border-radius:50%;overflow:hidden;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.4);background:#000;"><img src="${item.url}" style="width:100%;height:100%;object-fit:cover;"></div>`,
+                iconSize: [36, 36],
+                iconAnchor: [18, 18]
+            });
+            L.marker([item.lat, item.lng], { icon: customIcon })
+              .addTo(map)
+              .bindPopup(`<b>${item.date}</b><br><img src="${item.url}" style="width:120px;border-radius:6px;margin-top:4px;"><br><p style="margin:4px 0 0 0;font-size:12px;">${item.comment}</p>`);
+        }
+
+        // 履歴・削除・あとから写真追加モーダル管理
+        function openHistoryModal() {
+            const container = document.getElementById('history-list-container');
+            container.innerHTML = '';
+           
+            if (walkHistories.length === 0) {
+                container.innerHTML = '<p style="text-align:center;color:#888;">保存された履歴はありません</p>';
+            } else {
+                walkHistories.forEach((item, index) => {
+                    const div = document.createElement('div');
+                    div.className = 'history-item';
+                    div.innerHTML = `
+                        <div class="history-info">
+                            <span class="history-date">${item.date}</span>
+                            <span>距離: ${item.distance} / 時間: ${item.time}</span>
+                            <span style="font-size:11px;color:#2ed573;">写真: ${item.photos.length}枚</span>
+                        </div>
+                        <div style="display:flex;gap:5px;">
+                            <button class="modal-btn submit" style="padding:4px 8px;font-size:12px;" onclick="addPhotoToHistory(${item.id})">📷追加</button>
+                            <button class="modal-btn danger" style="padding:4px 8px;font-size:12px;" onclick="deleteHistory(${item.id})">削除</button>
+                        </div>
+                    `;
+                    container.appendChild(div);
+                });
+            }
+            document.getElementById('history-modal').style.display = 'flex';
+        }
+
+        function closeHistoryModal() {
+            document.getElementById('history-modal').style.display = 'none';
+        }
+
+        function deleteHistory(id) {
+            if (confirm('このお散歩記録を削除しますか？')) {
+                walkHistories = walkHistories.filter(h => h.id !== id);
+                localStorage.setItem('walk_histories', JSON.stringify(walkHistories));
+                openHistoryModal(); // リスト再描画
+            }
+        }
+
+        // ああとからお散歩にデバイスの写真を追加する機能の処理
+        let targetHistoryIdForPhoto = null;
+        function addPhotoToHistory(id) {
+            targetHistoryIdForPhoto = id;
+            // 専用のファイル入力を利用してアルバムから選択
+            let input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.onchange = e => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = function(evt) {
+                    const photoUrl = evt.target.result;
+                    let comment = prompt('この写真のコメントを入力してください：', 'あとから追加した写真');
+                   
+                    // 対象の履歴を探して写真を追加
+                    const history = walkHistories.find(h => h.id === targetHistoryIdForPhoto);
+                    if (history) {
+                        const targetPos = history.coordinates.length > 0 ? history.coordinates[0] : [35.6812, 139.7671];
+                        history.photos.push({
+                            lat: targetPos[0],
+                            lng: targetPos[1],
+                            url: photoUrl,
+                            comment: comment || '思い出の写真',
+                            date: 'あとから追加'
+                        });
+                        localStorage.setItem('walk_histories', JSON.stringify(walkHistories));
+                        alert('履歴に写真を追加しました！');
+                        openHistoryModal();
+                    }
+                };
+                reader.readAsDataURL(file);
+            };
+            input.click();
+        }
+
+        function openAccountModal() { document.getElementById('account-modal').style.display = 'flex'; }
+        function closeAccountModal() { document.getElementById('account-modal').style.display = 'none'; }
+
+        window.onload = initMap;
+    </script>
+</body>
+</html>
