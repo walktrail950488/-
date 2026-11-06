@@ -112,22 +112,23 @@
             justify-content: space-between; align-items: center; font-size: 13px;
         }
 
-        #edit-bar {
+        /* 編集・ピン選択用上部バー */
+        #top-action-bar {
             position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 100;
-            background: rgba(255,71,87,0.9); padding: 8px 16px; border-radius: 20px; display: none;
-            gap: 10px; align-items: center; font-size: 13px; font-weight: bold;
+            background: rgba(255,71,87,0.95); padding: 8px 16px; border-radius: 20px; display: none;
+            gap: 10px; align-items: center; font-size: 13px; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
         }
 
-        /* 履歴プレビューマップ用 */
         #preview-map { width: 100%; height: 220px; border-radius: 10px; background: #333; }
     </style>
 </head>
 <body>
 
-    <div id="edit-bar">
-        <span>タップで頂点を指定してルートを描き直し中</span>
-        <button class="modal-btn submit" onclick="finishEditRoute()">完了</button>
-        <button class="modal-btn cancel" onclick="cancelEditRoute()">中断</button>
+    <!-- 編集・補正中のアクションバー -->
+    <div id="top-action-bar">
+        <span id="top-action-text">操作中</span>
+        <button class="modal-btn submit" id="top-action-ok" onclick="finishTopAction()">完了</button>
+        <button class="modal-btn cancel" id="top-action-cancel" onclick="cancelTopAction()">中断</button>
     </div>
 
     <!-- TAB 1: マップ -->
@@ -200,11 +201,11 @@
             <span>🗺️</span>
             <span>マップ</span>
         </button>
-        <button class="nav-item" onclick="switchTab('records', this)">
+        <button class="nav-item" onclick="switchTab('records', this)" id="nav-records-btn">
             <span>📅</span>
             <span>記録</span>
         </button>
-        <button class="nav-item" onclick="switchTab('profile', this)">
+        <button class="nav-item" onclick="switchTab('profile', this)" id="nav-profile-btn">
             <span>👤</span>
             <span>プロフィール</span>
         </button>
@@ -222,7 +223,7 @@
             <textarea id="photo-comment-input" rows="3" placeholder="コメントを入力..."></textarea>
             <div class="modal-buttons">
                 <button class="modal-btn cancel" onclick="closePhotoModal()">キャンセル</button>
-                <button class="modal-btn submit" onclick="savePhotoPin()">保存</button>
+                <button class="modal-btn submit" onclick="savePhotoPinModal()">次へ（位置指定）</button>
             </div>
         </div>
     </div>
@@ -233,7 +234,8 @@
             <h3 id="detail-title">お散歩の詳細</h3>
             <div id="preview-map"></div>
             <div id="detail-info" style="font-size:12px; color:#ccc;"></div>
-            <div class="modal-buttons">
+            <div class="modal-buttons" style="justify-content: space-between;">
+                <button class="modal-btn submit" onclick="triggerAddPhotoToHistory()">📷 写真を追加</button>
                 <button class="modal-btn cancel" onclick="closeDetailModal()">閉じる</button>
             </div>
         </div>
@@ -241,7 +243,7 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        let map, currentMarker, editLine;
+        let map, currentMarker, editLine, tempPinMarker;
         let isTracking = false;
         let routeSegments = [];
         let currentSegmentCoords = [];
@@ -251,11 +253,14 @@
         let timerInterval, seconds = 0, totalDist = 0;
         let currentPosition = null;
         let tempPhotoUrl = null;
+        let tempPhotoComment = '';
 
         let currentDate = new Date();
         let selectedDateStr = null;
-        let isEditingRoute = false;
-        let editingHistoryId = null;
+        
+        // 状態管理（'none', 'edit_route', 'add_photo_pin'）
+        let activeActionMode = 'none'; 
+        let targetHistoryId = null;
         let editedCoords = [];
 
         let previewMap = null;
@@ -271,9 +276,16 @@
             editLine = L.polyline([], { color: '#ff4757', weight: 4, dashArray: '5, 10' }).addTo(map);
 
             map.on('click', function(e) {
-                if (isEditingRoute) {
+                if (activeActionMode === 'edit_route') {
                     editedCoords.push([e.latlng.lat, e.latlng.lng]);
                     editLine.setLatLngs(editedCoords);
+                } else if (activeActionMode === 'add_photo_pin') {
+                    const latlng = [e.latlng.lat, e.latlng.lng];
+                    if (tempPinMarker) map.removeLayer(tempPinMarker);
+                    tempPinMarker = L.marker(latlng).addTo(map).bindPopup('ここに写真を配置します').openPopup();
+                    
+                    // タップした場所を一時保存
+                    window.selectedPhotoLatLng = latlng;
                 }
             });
 
@@ -307,7 +319,13 @@
             updateProfileStats();
         }
 
+        /* タブ切り替え（ロック中ガード付き） */
         function switchTab(tabName, element) {
+            if (activeActionMode !== 'none') {
+                alert('ルート補正または写真ピン指定の作業中です。「完了」または「中断」を押してください。');
+                return;
+            }
+
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
 
@@ -412,6 +430,7 @@
             updateProfileStats();
         }
 
+        /* 写真関連（新規お散歩中） */
         function triggerPhotoAdd() {
             document.getElementById('hidden-photo-input').click();
         }
@@ -434,23 +453,34 @@
             document.getElementById('photo-modal').style.display = 'none';
         }
 
-        function savePhotoPin() {
-            const comment = document.getElementById('photo-comment-input').value;
-            const pos = currentPosition || map.getCenter();
+        function savePhotoPinModal() {
+            tempPhotoComment = document.getElementById('photo-comment-input').value;
+            closePhotoModal();
+
+            if (activeActionMode === 'add_photo_pin_history') {
+                // 過去履歴への写真追加の場合、マップ上で位置選択モードへ
+                switchTab('map', document.querySelector('.nav-item'));
+                startSelectPhotoLocation();
+            } else {
+                // 通常のお散歩中
+                const pos = currentPosition || map.getCenter();
+                addPhotoItemDirect(pos[0], pos[1]);
+            }
+        }
+
+        function addPhotoItemDirect(lat, lng) {
             const now = new Date();
             const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-            
             const photoItem = {
-                lat: pos[0],
-                lng: pos[1],
+                lat: lat,
+                lng: lng,
                 url: tempPhotoUrl,
-                comment: comment || '',
+                comment: tempPhotoComment || '',
                 date: timeStr
             };
-
             photosData.push(photoItem);
             addPhotoMarkerToMap(photoItem);
-            closePhotoModal();
+            alert('写真をピン留めしました！');
         }
 
         function addPhotoMarkerToMap(item) {
@@ -465,6 +495,21 @@
               .bindPopup(`<b>${item.date}</b><br><img src="${item.url}" style="width:120px;border-radius:6px;margin-top:4px;"><br><p style="margin:4px 0 0 0;font-size:12px;">${item.comment}</p>`);
         }
 
+        /* 過去の履歴への写真追加フロー */
+        function triggerAddPhotoToHistory() {
+            closeDetailModal();
+            activeActionMode = 'add_photo_pin_history';
+            document.getElementById('hidden-photo-input').click();
+        }
+
+        function startSelectPhotoLocation() {
+            activeActionMode = 'add_photo_pin';
+            window.selectedPhotoLatLng = null;
+            document.getElementById('top-action-text').innerText = 'マップ上の撮影場所をタップして指定';
+            document.getElementById('top-action-bar').style.display = 'flex';
+        }
+
+        /* カレンダー・履歴 */
         function changeMonth(delta) {
             currentDate.setMonth(currentDate.getMonth() + delta);
             renderCalendar();
@@ -541,10 +586,11 @@
             });
         }
 
-        /* 履歴の詳細マッププレビュー表示 */
+        let viewingHistoryId = null;
         function openDetailModal(id) {
             const item = walkHistories.find(h => h.id === id);
             if (!item) return;
+            viewingHistoryId = id;
 
             document.getElementById('detail-title').innerText = `${item.dateStr} のお散歩`;
             document.getElementById('detail-info').innerHTML = `距離: <b>${item.distance}</b> / 時間: <b>${item.time}</b> / 写真: <b>${item.photos ? item.photos.length : 0}枚</b>`;
@@ -566,7 +612,6 @@
                 }
                 previewLayerGroup = L.layerGroup().addTo(previewMap);
 
-                // 軌跡の描画
                 if (item.segments && item.segments.length > 0) {
                     item.segments.forEach(seg => {
                         if (seg.coords && seg.coords.length > 0) {
@@ -577,7 +622,6 @@
                     L.polyline(item.coordinates, { color: '#ffffff', weight: 4, opacity: 0.9 }).addTo(previewLayerGroup);
                 }
 
-                // 写真ピンの描画
                 if (item.photos && item.photos.length > 0) {
                     item.photos.forEach(p => {
                         const customIcon = L.divIcon({
@@ -590,7 +634,6 @@
                     });
                 }
 
-                // マップの表示範囲を軌跡に合わせる
                 let allPts = item.coordinates || [];
                 if (item.segments) {
                     item.segments.forEach(s => allPts.push(...s.coords));
@@ -639,46 +682,72 @@
             }
         }
 
-        function startEditRoute(id) {
-            editingHistoryId = id;
-            isEditingRoute = true;
-            editedCoords = [];
-            editLine.setLatLngs([]);
-            switchTab('map', document.querySelector('.nav-item'));
-            document.getElementById('edit-bar').style.display = 'flex';
-        }
-
-        function finishEditRoute() {
-            if (editedCoords.length < 2) {
-                alert('マップ上を2点以上タップしてラインを描いてください。');
-                return;
-            }
-
-            const history = walkHistories.find(h => h.id === editingHistoryId);
-            if (history) {
-                history.coordinates = editedCoords;
-                history.segments = [{ color: '#3388ff', coords: editedCoords }];
-                
-                let dist = 0;
-                for (let i = 1; i < editedCoords.length; i++) {
-                    dist += map.distance(editedCoords[i-1], editedCoords[i]);
+        /* 上部アクションバーの制御（完了・中断） */
+        function finishTopAction() {
+            if (activeActionMode === 'edit_route') {
+                if (editedCoords.length < 2) {
+                    alert('マップ上を2点以上タップしてラインを描いてください。');
+                    return;
                 }
-                history.distance = (dist / 1000).toFixed(2) + ' km';
-                
-                localStorage.setItem('walk_histories', JSON.stringify(walkHistories));
-                alert('ルートを書き換えて保存しました');
-                updateProfileStats();
+                const history = walkHistories.find(h => h.id === editingHistoryId);
+                if (history) {
+                    history.coordinates = editedCoords;
+                    history.segments = [{ color: '#3388ff', coords: editedCoords }];
+                    
+                    let dist = 0;
+                    for (let i = 1; i < editedCoords.length; i++) {
+                        dist += map.distance(editedCoords[i-1], editedCoords[i]);
+                    }
+                    history.distance = (dist / 1000).toFixed(2) + ' km';
+                    
+                    localStorage.setItem('walk_histories', JSON.stringify(walkHistories));
+                    alert('ルートを書き換えて保存しました');
+                    updateProfileStats();
+                }
+            } else if (activeActionMode === 'add_photo_pin') {
+                if (!window.selectedPhotoLatLng) {
+                    alert('マップ上のどこかをタップしてピン位置を指定してください。');
+                    return;
+                }
+                const history = walkHistories.find(h => h.id === viewingHistoryId);
+                if (history) {
+                    if (!history.photos) history.photos = [];
+                    const now = new Date();
+                    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+                    history.photos.push({
+                        lat: window.selectedPhotoLatLng[0],
+                        lng: window.selectedPhotoLatLng[1],
+                        url: tempPhotoUrl,
+                        comment: tempPhotoComment || '写真メモ',
+                        date: timeStr
+                    });
+                    localStorage.setItem('walk_histories', JSON.stringify(walkHistories));
+                    alert('過去の履歴に写真を追加しました！');
+                }
             }
-
-            cancelEditRoute();
+            cancelTopAction();
         }
 
-        function cancelEditRoute() {
-            isEditingRoute = false;
+        function cancelTopAction() {
+            activeActionMode = 'none';
             editingHistoryId = null;
             editedCoords = [];
             editLine.setLatLngs([]);
-            document.getElementById('edit-bar').style.display = 'none';
+            if (tempPinMarker) {
+                map.removeLayer(tempPinMarker);
+                tempPinMarker = null;
+            }
+            document.getElementById('top-action-bar').style.display = 'none';
+        }
+
+        function startEditRoute(id) {
+            editingHistoryId = id;
+            activeActionMode = 'edit_route';
+            editedCoords = [];
+            editLine.setLatLngs([]);
+            switchTab('map', document.querySelector('.nav-item'));
+            document.getElementById('top-action-text').innerText = 'マップをタップしてルートを描き直し';
+            document.getElementById('top-action-bar').style.display = 'flex';
         }
 
         window.onload = initMap;
