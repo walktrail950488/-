@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>My Trail　～旅の記録～</title>
+    <title>MyTrail〜旅の記録〜</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body, html {
@@ -80,6 +80,10 @@
             background: #1e1e1e; padding: 15px; border-radius: 12px; margin-bottom: 15px;
             border: 1px solid #333;
         }
+        .profile-card input, .profile-card textarea {
+            width: 100%; background: #2a2a2a; border: 1px solid #444; color: #fff; padding: 8px;
+            border-radius: 6px; font-size: 13px; box-sizing: border-box; margin-top: 6px;
+        }
 
         .modal {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75);
@@ -90,7 +94,7 @@
             display: flex; flex-direction: column; gap: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); max-height: 85vh; overflow-y: auto;
         }
         .modal-content h3 { margin: 0; font-size: 16px; font-weight: bold; }
-        .modal-content textarea {
+        .modal-content input, .modal-content textarea {
             width: 100%; background: #333; border: 1px solid #444; color: #fff; padding: 10px;
             border-radius: 8px; font-size: 14px; box-sizing: border-box; resize: none;
         }
@@ -112,18 +116,20 @@
             justify-content: space-between; align-items: center; font-size: 13px;
         }
 
+        .album-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+        .album-thumb { width: 100%; aspect-ratio: 1; border-radius: 6px; object-fit: cover; cursor: pointer; border: 1px solid #444; }
+
         #top-action-bar {
             position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 100;
             background: rgba(255,71,87,0.95); padding: 8px 16px; border-radius: 20px; display: none;
             gap: 10px; align-items: center; font-size: 13px; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
         }
 
-        #preview-map { width: 100%; height: 220px; border-radius: 10px; background: #333; }
+        #preview-map { width: 100%; height: 200px; border-radius: 10px; background: #333; }
     </style>
 </head>
 <body>
 
-    <!-- 編集・補正中のアクションバー -->
     <div id="top-action-bar">
         <span id="top-action-text">操作中</span>
         <button class="modal-btn submit" id="top-action-ok" onclick="finishTopAction()">完了</button>
@@ -167,7 +173,7 @@
     <!-- TAB 2: 記録 -->
     <div id="tab-records" class="tab-content">
         <div class="page-container">
-            <h2>お散歩履歴</h2>
+            <h2>旅の履歴</h2>
             <div class="calendar-header" style="margin-top:15px;">
                 <button class="modal-btn cancel" style="padding:4px 8px;" onclick="changeMonth(-1)">&lt;</button>
                 <span id="calendar-month-label" style="font-weight:bold;font-size:14px;"></span>
@@ -181,16 +187,27 @@
     <!-- TAB 3: プロフィール -->
     <div id="tab-profile" class="tab-content">
         <div class="page-container">
-            <h2>プロフィール</h2>
+            <h2>プロフィール & アカウント</h2>
+            <div class="profile-card">
+                <h3 style="margin:0 0 4px 0; font-size:15px;">アカウント情報</h3>
+                <label style="font-size:11px; color:#aaa;">ユーザー名</label>
+                <input type="text" id="profile-name-input" placeholder="名前を入力..." onchange="saveProfileSettings()">
+                <label style="font-size:11px; color:#aaa; display:block; margin-top:8px;">ひとこと</label>
+                <textarea id="profile-bio-input" rows="2" placeholder="ひとことプロフィール..." onchange="saveProfileSettings()"></textarea>
+            </div>
             <div class="profile-card">
                 <h3 style="margin:0 0 8px 0; font-size:15px;">統計情報</h3>
                 <p id="total-walk-count" style="margin:4px 0; font-size:13px; color:#aaa;">総お散歩回数: 0回</p>
                 <p id="total-walk-dist" style="margin:4px 0; font-size:13px; color:#aaa;">総歩行距離: 0.00 km</p>
             </div>
             <div class="profile-card">
-                <h3 style="margin:0 0 8px 0; font-size:15px;">アプリ設定</h3>
-                <p style="margin:4px 0; font-size:13px; color:#aaa;">データはすべてこの端末（ブラウザ）に保存されています。</p>
-                <button class="modal-btn danger" style="margin-top:10px;" onclick="clearAllData()">全データをリセット</button>
+                <h3 style="margin:0 0 8px 0; font-size:15px;">思い出アルバム</h3>
+                <div class="album-grid" id="profile-album-container">
+                    <p style="color:#888; font-size:12px; grid-column: span 3; text-align: center;">写真がまだありません</p>
+                </div>
+            </div>
+            <div class="profile-card">
+                <button class="modal-btn danger" style="width:100%;" onclick="clearAllData()">全データをリセット</button>
             </div>
         </div>
     </div>
@@ -212,6 +229,17 @@
 
     <input type="file" id="hidden-photo-input" accept="image/*" style="display:none;" onchange="handlePhotoSelected(event)">
 
+    <!-- 記録名入力モーダル -->
+    <div id="save-modal" class="modal">
+        <div class="modal-content">
+            <h3>旅の記録名</h3>
+            <input type="text" id="walk-title-input" placeholder="例: 〇〇公園の散歩 など">
+            <div class="modal-buttons">
+                <button class="modal-btn submit" onclick="confirmSaveWalk()">保存する</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 写真コメント入力モーダル -->
     <div id="photo-modal" class="modal">
         <div class="modal-content">
@@ -227,14 +255,15 @@
         </div>
     </div>
 
-    <!-- 履歴詳細・マッププレビューモーダル -->
+    <!-- 履歴詳細・マッププレビュー・共有モーダル -->
     <div id="detail-modal" class="modal">
         <div class="modal-content">
-            <h3 id="detail-title">お散歩の詳細</h3>
+            <h3 id="detail-title">旅の詳細</h3>
             <div id="preview-map"></div>
             <div id="detail-info" style="font-size:12px; color:#ccc;"></div>
-            <div class="modal-buttons" style="justify-content: space-between;">
-                <button class="modal-btn submit" onclick="triggerAddPhotoToHistory()">📷 写真を追加</button>
+            <div class="modal-buttons" style="justify-content: space-between; flex-wrap: wrap;">
+                <button class="modal-btn submit" onclick="triggerAddPhotoToHistory()">📷 写真追加</button>
+                <button class="modal-btn submit" style="background:#0984e3;" onclick="shareWalkRecord()">🔗 共有</button>
                 <button class="modal-btn cancel" onclick="closeDetailModal()">閉じる</button>
             </div>
         </div>
@@ -248,6 +277,7 @@
         let currentSegmentCoords = [];
         let photosData = [];
         let walkHistories = JSON.parse(localStorage.getItem('walk_histories') || '[]');
+        let userProfile = JSON.parse(localStorage.getItem('walk_profile') || '{"name":"ゲストさん","bio":""}');
         let pathColor = '#ffffff';
         let timerInterval, seconds = 0, totalDist = 0;
         let currentPosition = null;
@@ -259,6 +289,7 @@
         
         let activeActionMode = 'none'; 
         let targetHistoryId = null;
+        let viewingHistoryId = null;
         let editedCoords = [];
 
         let previewMap = null;
@@ -312,6 +343,7 @@
                     }
                 }, err => console.error(err), { enableHighAccuracy: true });
             }
+            loadProfileSettings();
             updateProfileStats();
         }
 
@@ -342,6 +374,7 @@
             } else if (tabName === 'profile') {
                 document.getElementById('tab-profile').classList.add('active');
                 updateProfileStats();
+                renderProfileAlbum();
             }
             element.classList.add('active');
         }
@@ -404,12 +437,16 @@
                 routeSegments.push({ color: pathColor, coords: [...currentSegmentCoords] });
                 
                 if (currentSegmentCoords.length > 0) {
-                    saveWalkHistory();
+                    document.getElementById('walk-title-input').value = `旅の記録 (${new Date().toLocaleDateString()})`;
+                    document.getElementById('save-modal').style.display = 'flex';
                 }
             }
         }
 
-        function saveWalkHistory() {
+        function confirmSaveWalk() {
+            const title = document.getElementById('walk-title-input').value || 'お散歩';
+            document.getElementById('save-modal').style.display = 'none';
+
             const now = new Date();
             const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
             const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -419,6 +456,7 @@
 
             const newHistory = {
                 id: Date.now(),
+                title: title,
                 dateStr: dateStr,
                 timeStr: timeStr,
                 distance: (totalDist / 1000).toFixed(2) + ' km',
@@ -429,12 +467,12 @@
             };
             walkHistories.unshift(newHistory);
             localStorage.setItem('walk_histories', JSON.stringify(walkHistories));
-            alert('記録を保存しました');
+            alert('旅の記録を保存しました！');
             updateProfileStats();
         }
 
         function triggerPhotoAdd() {
-            targetHistoryId = null; // 通常撮影
+            targetHistoryId = null; 
             document.getElementById('hidden-photo-input').click();
         }
 
@@ -487,6 +525,44 @@
             closeDetailModal();
             targetHistoryId = viewingHistoryId;
             document.getElementById('hidden-photo-input').click();
+        }
+
+        function loadProfileSettings() {
+            document.getElementById('profile-name-input').value = userProfile.name || '';
+            document.getElementById('profile-bio-input').value = userProfile.bio || '';
+        }
+
+        function saveProfileSettings() {
+            userProfile.name = document.getElementById('profile-name-input').value;
+            userProfile.bio = document.getElementById('profile-bio-input').value;
+            localStorage.setItem('walk_profile', JSON.stringify(userProfile));
+        }
+
+        function renderProfileAlbum() {
+            const container = document.getElementById('profile-album-container');
+            container.innerHTML = '';
+            
+            let allPhotos = [];
+            walkHistories.forEach(h => {
+                if (h.photos && h.photos.length > 0) {
+                    h.photos.forEach(p => allPhotos.push(p));
+                }
+            });
+
+            if (allPhotos.length === 0) {
+                container.innerHTML = '<p style="color:#888; font-size:12px; grid-column: span 3; text-align: center; margin: 10px 0;">写真がまだありません</p>';
+                return;
+            }
+
+            allPhotos.forEach(p => {
+                const img = document.createElement('img');
+                img.className = 'album-thumb';
+                img.src = p.url;
+                img.onclick = () => {
+                    alert(`[${p.date}] ${p.comment || 'コメントなし'}`);
+                };
+                container.appendChild(img);
+            });
         }
 
         function changeMonth(delta) {
@@ -552,8 +628,8 @@
                 div.className = 'history-item';
                 div.innerHTML = `
                     <div>
-                        <div style="font-size:11px;color:#aaa;">${item.dateStr} ${item.timeStr || ''}</div>
-                        <div>距離: ${item.distance} / 時間: ${item.time}</div>
+                        <div style="font-size:12px;font-weight:bold;color:#fff;">${item.title || '旅の記録'}</div>
+                        <div style="font-size:11px;color:#aaa;">${item.dateStr} / 距離: ${item.distance}</div>
                     </div>
                     <div style="display:flex;gap:4px;">
                         <button class="modal-btn submit" style="padding:4px 6px;font-size:11px;" onclick="openDetailModal(${item.id})">見る</button>
@@ -565,13 +641,12 @@
             });
         }
 
-        let viewingHistoryId = null;
         function openDetailModal(id) {
             const item = walkHistories.find(h => h.id === id);
             if (!item) return;
             viewingHistoryId = id;
 
-            document.getElementById('detail-title').innerText = `${item.dateStr} のお散歩`;
+            document.getElementById('detail-title').innerText = item.title || `${item.dateStr} の記録`;
             document.getElementById('detail-info').innerHTML = `距離: <b>${item.distance}</b> / 時間: <b>${item.time}</b> / 写真: <b>${item.photos ? item.photos.length : 0}枚</b>`;
             document.getElementById('detail-modal').style.display = 'flex';
 
@@ -609,7 +684,9 @@
                             iconSize: [26, 26],
                             iconAnchor: [13, 13]
                         });
-                        L.marker([p.lat, p.lng], { icon: customIcon }).addTo(previewLayerGroup);
+                        L.marker([p.lat, p.lng], { icon: customIcon })
+                          .addTo(previewLayerGroup)
+                          .bindPopup(`<b>${p.date || ''}</b><br><img src="${p.url}" style="width:120px;border-radius:6px;margin-top:4px;"><br><p style="margin:4px 0 0 0;font-size:12px;">${p.comment || ''}</p>`);
                     });
                 }
 
@@ -627,6 +704,20 @@
 
         function closeDetailModal() {
             document.getElementById('detail-modal').style.display = 'none';
+        }
+
+        function shareWalkRecord() {
+            const item = walkHistories.find(h => h.id === viewingHistoryId);
+            if (!item) return;
+            const text = `【MyTrail 旅の記録: ${item.title || '記録'}】\n日付: ${item.dateStr}\n距離: ${item.distance}\n時間: ${item.time}\n#MyTrail`;
+            
+            if (navigator.share) {
+                navigator.share({ title: item.title, text: text }).catch(() => {});
+            } else {
+                navigator.clipboard.writeText(text).then(() => {
+                    alert('旅の記録のテキストをコピーしました！');
+                });
+            }
         }
 
         function deleteHistory(id) {
@@ -657,6 +748,7 @@
                 renderCalendar();
                 renderHistoryList();
                 updateProfileStats();
+                renderProfileAlbum();
                 alert('データをリセットしました');
             }
         }
@@ -704,7 +796,7 @@
                         if (!history.photos) history.photos = [];
                         history.photos.push(photoItem);
                         localStorage.setItem('walk_histories', JSON.stringify(walkHistories));
-                        alert('過去のお散歩に写真を追加しました！');
+                        alert('旅の記録に写真を追加しました！');
                     }
                 } else {
                     photosData.push(photoItem);
